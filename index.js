@@ -14,12 +14,14 @@ const io = new Server(server, {
   },
 });
 
-// rooms[roomKey] = {
-//   players: [socketId, ...],
-//   names: { [socketId]: string },
-//   ready: { [socketId]: boolean },
-// }
+// rooms[roomKey] = { players: [ { id, name, ready } ] }
 const rooms = {};
+
+function emitPlayers(room) {
+  const roomData = rooms[room];
+  if (!roomData) return;
+  io.to(room).emit("update_players", roomData.players);
+}
 
 io.on("connection", (socket) => {
   console.log("Yeni bağlantı:", socket.id);
@@ -29,22 +31,22 @@ io.on("connection", (socket) => {
     socket.join(room);
 
     if (!rooms[room]) {
-      rooms[room] = {
-        players: [],
-        names: {},
-        ready: {},
-      };
+      rooms[room] = { players: [] };
     }
 
     const roomData = rooms[room];
 
-    if (!roomData.players.includes(socket.id)) {
-      roomData.players.push(socket.id);
+    // Zaten ekliysek tekrar ekleme
+    const already = roomData.players.find((p) => p.id === socket.id);
+    if (!already) {
+      roomData.players.push({
+        id: socket.id,
+        name: `Oyuncu-${socket.id.slice(0, 5)}`,
+        ready: false,
+      });
     }
 
-    // Her join olduğunda, client tarafındaki eski mantığı bozmamak için
-    // sadece ID listesini gönderiyoruz.
-    io.to(room).emit("update_players", roomData.players);
+    emitPlayers(room);
   });
 
   // Yol olayı (şimdilik sadece örnek)
@@ -54,25 +56,29 @@ io.on("connection", (socket) => {
   });
 
   // İSİM GÜNCELLEME
-  socket.on("set_name", ({ room, playerId, name }) => {
+  // Client'tan: socket.emit("set_name", { room, name })
+  socket.on("set_name", ({ room, name }) => {
     const roomData = rooms[room];
     if (!roomData) return;
 
-    roomData.names[playerId] = name;
+    const player = roomData.players.find((p) => p.id === socket.id);
+    if (!player) return;
 
-    // Odaya broadcast
-    io.to(room).emit("name_updated", { playerId, name });
+    player.name = name;
+    emitPlayers(room);
   });
 
-  // HAZIRLIK GÜNCELLEME
-  socket.on("set_ready", ({ room, playerId, ready }) => {
+  // HAZIR DURUM GÜNCELLEME
+  // Client'tan: socket.emit("set_ready", { room, ready })
+  socket.on("set_ready", ({ room, ready }) => {
     const roomData = rooms[room];
     if (!roomData) return;
 
-    roomData.ready[playerId] = !!ready;
+    const player = roomData.players.find((p) => p.id === socket.id);
+    if (!player) return;
 
-    // Odaya broadcast
-    io.to(room).emit("ready_updated", { playerId, ready: !!ready });
+    player.ready = !!ready;
+    emitPlayers(room);
   });
 
   // Bağlantı koptu
@@ -84,14 +90,12 @@ io.on("connection", (socket) => {
       if (!roomData) continue;
 
       const before = roomData.players.length;
+      roomData.players = roomData.players.filter(
+        (p) => p.id !== socket.id
+      );
 
-      roomData.players = roomData.players.filter((id) => id !== socket.id);
-      delete roomData.names[socket.id];
-      delete roomData.ready[socket.id];
-
-      // O odadan gerçekten biri çıktıysa listeyi güncelle
       if (roomData.players.length !== before) {
-        io.to(room).emit("update_players", roomData.players);
+        emitPlayers(room);
       }
     }
   });
