@@ -21,20 +21,6 @@ const io = new Server(server, {
 // }
 const rooms = {};
 
-// Odaya ait son durumu herkese gönder
-function emitRoomState(room) {
-  const data = rooms[room];
-  if (!data) return;
-
-  const payload = data.players.map((id) => ({
-    id,
-    name: data.names[id] || null,
-    ready: !!data.ready[id],
-  }));
-
-  io.to(room).emit("update_players", payload);
-}
-
 io.on("connection", (socket) => {
   console.log("Yeni bağlantı:", socket.id);
 
@@ -56,15 +42,12 @@ io.on("connection", (socket) => {
       roomData.players.push(socket.id);
     }
 
-    // İstersen burada default isim verebilirsin
-    if (!roomData.names[socket.id]) {
-      roomData.names[socket.id] = `Oyuncu-${socket.id.slice(0, 5)}`;
-    }
-
-    emitRoomState(room);
+    // Her join olduğunda, client tarafındaki eski mantığı bozmamak için
+    // sadece ID listesini gönderiyoruz.
+    io.to(room).emit("update_players", roomData.players);
   });
 
-  // Yol örneği (şimdilik sadece log + broadcast)
+  // Yol olayı (şimdilik sadece örnek)
   socket.on("build_road", ({ room, edgeId, playerId }) => {
     console.log(`${playerId} oyuncusu ${edgeId} yolunu yaptı`);
     io.to(room).emit("road_built", { edgeId, playerId });
@@ -76,7 +59,9 @@ io.on("connection", (socket) => {
     if (!roomData) return;
 
     roomData.names[playerId] = name;
-    emitRoomState(room);
+
+    // Odaya broadcast
+    io.to(room).emit("name_updated", { playerId, name });
   });
 
   // HAZIRLIK GÜNCELLEME
@@ -85,7 +70,9 @@ io.on("connection", (socket) => {
     if (!roomData) return;
 
     roomData.ready[playerId] = !!ready;
-    emitRoomState(room);
+
+    // Odaya broadcast
+    io.to(room).emit("ready_updated", { playerId, ready: !!ready });
   });
 
   // Bağlantı koptu
@@ -96,13 +83,15 @@ io.on("connection", (socket) => {
       const roomData = rooms[room];
       if (!roomData) continue;
 
-      const beforeCount = roomData.players.length;
-      roomData.players = roomData.players.filter((id) => id !== socket.id);
+      const before = roomData.players.length;
 
-      if (beforeCount !== roomData.players.length) {
-        delete roomData.names[socket.id];
-        delete roomData.ready[socket.id];
-        emitRoomState(room);
+      roomData.players = roomData.players.filter((id) => id !== socket.id);
+      delete roomData.names[socket.id];
+      delete roomData.ready[socket.id];
+
+      // O odadan gerçekten biri çıktıysa listeyi güncelle
+      if (roomData.players.length !== before) {
+        io.to(room).emit("update_players", roomData.players);
       }
     }
   });
