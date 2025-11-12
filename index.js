@@ -14,14 +14,8 @@ const io = new Server(server, {
   },
 });
 
-// rooms[roomKey] = { players: [ { id, name, ready } ] }
+// rooms[roomKey] = { players: [socketId, ...] }
 const rooms = {};
-
-function emitPlayers(room) {
-  const roomData = rooms[room];
-  if (!roomData) return;
-  io.to(room).emit("update_players", roomData.players);
-}
 
 io.on("connection", (socket) => {
   console.log("Yeni bağlantı:", socket.id);
@@ -36,17 +30,12 @@ io.on("connection", (socket) => {
 
     const roomData = rooms[room];
 
-    // Zaten ekliysek tekrar ekleme
-    const already = roomData.players.find((p) => p.id === socket.id);
-    if (!already) {
-      roomData.players.push({
-        id: socket.id,
-        name: `Oyuncu-${socket.id.slice(0, 5)}`,
-        ready: false,
-      });
+    if (!roomData.players.includes(socket.id)) {
+      roomData.players.push(socket.id);
     }
 
-    emitPlayers(room);
+    // Sadece ID listesi gönderiyoruz
+    io.to(room).emit("update_players", roomData.players);
   });
 
   // Yol olayı (şimdilik sadece örnek)
@@ -56,32 +45,19 @@ io.on("connection", (socket) => {
   });
 
   // İSİM GÜNCELLEME
-  // Client'tan: socket.emit("set_name", { room, name })
-  socket.on("set_name", ({ room, name }) => {
-    const roomData = rooms[room];
-    if (!roomData) return;
-
-    const player = roomData.players.find((p) => p.id === socket.id);
-    if (!player) return;
-
-    player.name = name;
-    emitPlayers(room);
+  // Client: socket.emit("set_name", { room, playerId, name })
+  socket.on("set_name", ({ room, playerId, name }) => {
+    // Hiç state tutmuyoruz, sadece broadcast
+    io.to(room).emit("name_update", { playerId, name });
   });
 
-  // HAZIR DURUM GÜNCELLEME
-  // Client'tan: socket.emit("set_ready", { room, ready })
-  socket.on("set_ready", ({ room, ready }) => {
-    const roomData = rooms[room];
-    if (!roomData) return;
-
-    const player = roomData.players.find((p) => p.id === socket.id);
-    if (!player) return;
-
-    player.ready = !!ready;
-    emitPlayers(room);
+  // HAZIRLIK GÜNCELLEME
+  // Client: socket.emit("set_ready", { room, playerId, ready })
+  socket.on("set_ready", ({ room, playerId, ready }) => {
+    io.to(room).emit("ready_update", { playerId, ready: !!ready });
   });
 
-  // Bağlantı koptu
+  // Disconnect
   socket.on("disconnect", () => {
     console.log("Bağlantı koptu:", socket.id);
 
@@ -90,12 +66,10 @@ io.on("connection", (socket) => {
       if (!roomData) continue;
 
       const before = roomData.players.length;
-      roomData.players = roomData.players.filter(
-        (p) => p.id !== socket.id
-      );
+      roomData.players = roomData.players.filter((id) => id !== socket.id);
 
       if (roomData.players.length !== before) {
-        emitPlayers(room);
+        io.to(room).emit("update_players", roomData.players);
       }
     }
   });
