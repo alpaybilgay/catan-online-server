@@ -4,6 +4,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 
+console.log("### Catan server BUILD 4.0.0 ###");
 const app = express();
 app.use(cors());
 const server = createServer(app);
