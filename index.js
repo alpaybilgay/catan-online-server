@@ -14,7 +14,7 @@ const io = new Server(server, {
   },
 });
 
-// rooms[roomKey] = { players: [socketId, ...] }
+// rooms = { [roomId]: { players: [socketId, ...] } }
 const rooms = {};
 
 io.on("connection", (socket) => {
@@ -22,54 +22,54 @@ io.on("connection", (socket) => {
 
   // Odaya katıl
   socket.on("join_room", (room) => {
+    console.log("join_room:", room, "->", socket.id);
+
     socket.join(room);
 
     if (!rooms[room]) {
       rooms[room] = { players: [] };
     }
 
-    const roomData = rooms[room];
-
-    if (!roomData.players.includes(socket.id)) {
-      roomData.players.push(socket.id);
+    if (!rooms[room].players.includes(socket.id)) {
+      rooms[room].players.push(socket.id);
     }
 
-    // Sadece ID listesi gönderiyoruz
-    io.to(room).emit("update_players", roomData.players);
+    io.to(room).emit("update_players", rooms[room].players);
   });
 
-  // Yol olayı (şimdilik sadece örnek)
-  socket.on("build_road", ({ room, edgeId, playerId }) => {
-    console.log(`${playerId} oyuncusu ${edgeId} yolunu yaptı`);
-    io.to(room).emit("road_built", { edgeId, playerId });
-  });
-
-  // İSİM GÜNCELLEME
-  // Client: socket.emit("set_name", { room, playerId, name })
+  // İsim güncelleme
   socket.on("set_name", ({ room, playerId, name }) => {
-    // Hiç state tutmuyoruz, sadece broadcast
+    console.log("SERVER set_name:", { room, playerId, name });
+    // Sadece olaya aracılık ediyoruz, state tutmuyoruz
     io.to(room).emit("name_update", { playerId, name });
   });
 
-  // HAZIRLIK GÜNCELLEME
-  // Client: socket.emit("set_ready", { room, playerId, ready })
+  // Hazır durumu güncelleme
   socket.on("set_ready", ({ room, playerId, ready }) => {
+    console.log("SERVER set_ready:", { room, playerId, ready });
     io.to(room).emit("ready_update", { playerId, ready: !!ready });
   });
 
-  // Disconnect
+  // Örnek: yol inşa olayı
+  socket.on("build_road", ({ room, edgeId, playerId }) => {
+    io.to(room).emit("road_built", { edgeId, playerId });
+  });
+
+  // Bağlantı kopunca odalardan düşür
   socket.on("disconnect", () => {
     console.log("Bağlantı koptu:", socket.id);
 
     for (const room in rooms) {
-      const roomData = rooms[room];
-      if (!roomData) continue;
+      if (!rooms[room]) continue;
 
-      const before = roomData.players.length;
-      roomData.players = roomData.players.filter((id) => id !== socket.id);
+      const before = rooms[room].players.length;
+      rooms[room].players = rooms[room].players.filter(
+        (id) => id !== socket.id
+      );
+      const after = rooms[room].players.length;
 
-      if (roomData.players.length !== before) {
-        io.to(room).emit("update_players", roomData.players);
+      if (before !== after) {
+        io.to(room).emit("update_players", rooms[room].players);
       }
     }
   });
