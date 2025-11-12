@@ -1,18 +1,15 @@
-// server/index.js
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 
-console.log("### Catan server BUILD 4.0.0 ###");
+console.log("### Catan server BUILD 4.1.0 ###");
 const app = express();
 app.use(cors());
 const server = createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
+  cors: { origin: "*" },
 });
 
 // rooms = { [roomId]: { players: [socketId, ...] } }
@@ -21,7 +18,7 @@ const rooms = {};
 io.on("connection", (socket) => {
   console.log("Yeni bağlantı:", socket.id);
 
-  // Odaya katıl
+  // Odaya katıl (id listesi tutuyoruz)
   socket.on("join_room", (room) => {
     console.log("join_room:", room, "->", socket.id);
 
@@ -38,25 +35,30 @@ io.on("connection", (socket) => {
     io.to(room).emit("update_players", rooms[room].players);
   });
 
-  // İsim güncelleme
+  // İsim güncelleme (server state tutmuyor; sadece broadcast)
   socket.on("set_name", ({ room, playerId, name }) => {
     console.log("SERVER set_name:", { room, playerId, name });
-    // Sadece olaya aracılık ediyoruz, state tutmuyoruz
     io.to(room).emit("name_update", { playerId, name });
   });
 
-  // Hazır durumu güncelleme
+  // Hazır durumu güncelleme (broadcast)
   socket.on("set_ready", ({ room, playerId, ready }) => {
     console.log("SERVER set_ready:", { room, playerId, ready });
     io.to(room).emit("ready_update", { playerId, ready: !!ready });
   });
 
-  // Örnek: yol inşa olayı
+  // Yol örneği (mevcut)
   socket.on("build_road", ({ room, edgeId, playerId }) => {
     io.to(room).emit("road_built", { edgeId, playerId });
   });
 
-  // Bağlantı kopunca odalardan düşür
+  // ✅ YENİ: Faz değişimini odadaki herkese yayınla
+  socket.on("change_phase", ({ room, phase }) => {
+    console.log("SERVER change_phase:", { room, phase });
+    io.to(room).emit("phase_update", { phase });
+  });
+
+  // Bağlantı kopunca oyuncuyu odalardan düşür
   socket.on("disconnect", () => {
     console.log("Bağlantı koptu:", socket.id);
 
